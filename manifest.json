@@ -1,0 +1,8 @@
+{
+  "short_name": "RRTE",
+  "name": "Red River Tractor & Equipment",
+  "start_url": ".",
+  "display": "standalone",
+  "theme_color": "#1c1f2e",
+  "background_color": "#1c1f2e"
+}
