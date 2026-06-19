@@ -1,9 +1,0 @@
-[build]
-  command = "npm run build"
-  publish = "build"
-
-[build.environment]
-  NODE_VERSION = "18"
-  CI = "false"
-  SKIP_PREFLIGHT_CHECK = "true"
-  DISABLE_ESLINT_PLUGIN = "true"
