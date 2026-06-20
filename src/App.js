@@ -527,7 +527,7 @@ export default function App() {
     setShowReceiptModal(null);
   }
 
-  function deleteDoc(folder, docId) {
+  function deleteDocFromFolder(folder, docId) {
     updEq(selectedId, e => {
       const docs = { ...e.docs };
       docs[folder] = (docs[folder]||[]).filter(d => d.id !== docId);
@@ -1125,7 +1125,7 @@ items.forEach(function(item, idx){
                         )}
                       </div>
                       <div style={{ borderTop:"1px solid #2a3055", padding:"4px 8px", display:"flex", justifyContent:"flex-end" }}>
-                        <button onClick={()=>deleteDoc(activeFolder, doc.id)} style={{background:"none",border:"none",color:"#4a5a7a",cursor:"pointer",fontSize:11,padding:2}}>Delete</button>
+                        <button onClick={()=>deleteDocFromFolder(activeFolder, doc.id)} style={{background:"none",border:"none",color:"#4a5a7a",cursor:"pointer",fontSize:11,padding:2}}>Delete</button>
                       </div>
                     </div>
                   ))}
