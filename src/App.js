@@ -57,50 +57,8 @@ function getTotals(e) {
 }
 
 // ─── AI Receipt Scanner ───────────────────────────────────────────────────────
-async function scanReceiptWithAI(base64Data, mimeType) {
-  try {
-    const res = await fetch("https://api.anthropic.com/v1/messages", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        model: "claude-sonnet-4-20250514",
-        max_tokens: 1000,
-        messages: [{
-          role: "user",
-          content: [
-            {
-              type: "image",
-              source: { type: "base64", media_type: mimeType, data: base64Data }
-            },
-            {
-              type: "text",
-              text: `You are analyzing a receipt or invoice image for an equipment dealer's expense tracking system.
-
-Extract the following and respond ONLY with a valid JSON object, no markdown, no explanation:
-{
-  "vendor": "vendor/business name or empty string",
-  "total": number (the final total dollar amount as a number, e.g. 245.50),
-  "date": "YYYY-MM-DD format if found, else empty string",
-  "description": "brief 1-line description of what was purchased/serviced",
-  "category": "one of: Trucking, Service & Repair, Parts, Cleaning, Inspection, Storage, Other",
-  "confidence": "high | medium | low"
-}
-
-If you cannot find a clear total amount, set total to 0. Be conservative — only extract what is clearly visible.`
-            }
-          ]
-        }]
-      })
-    });
-    const data = await res.json();
-    const text = data.content?.map(b => b.text || "").join("") || "";
-    const clean = text.replace(/```json|```/g, "").trim();
-    return JSON.parse(clean);
-  } catch (err) {
-    console.error("AI scan error:", err);
-    return null;
-  }
-}
+// AI receipt scanning is not available on the deployed app (no backend API key).
+// Receipts are uploaded with manual amount entry instead — fast and always reliable.
 
 // ─── Styles ───────────────────────────────────────────────────────────────────
 const S = {
@@ -182,9 +140,9 @@ export default function App() {
   const [searchQ, setSearchQ] = useState("");
   const [activeFolder, setActiveFolder] = useState(DOC_FOLDERS[0]);
   const [reportMonth, setReportMonth] = useState(() => { const d=new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}`; });
-  const [scanResult, setScanResult] = useState(null);
-  const [scanLoading, setScanLoading] = useState(false);
+  // Receipt upload now uses manual amount entry only (no AI scan dependency)
   const [pendingUpload, setPendingUpload] = useState(null); // { base64, mimeType, name, folder }
+  const [uploadingDoc, setUploadingDoc] = useState(false);
   const [manualAmount, setManualAmount] = useState(""); // override for AI-extracted amount
   const fileInputRef = useRef();
 
@@ -246,12 +204,19 @@ export default function App() {
   // ── Helpers ──
   // ── Firestore helpers ──
   // updEq: update a single equipment doc in Firestore; onSnapshot syncs UI automatically
-  const updEq = (id, fn) => {
+  const updEq = (id, fn, onError) => {
     const current = equipment.find(e => e.id === id);
     if (!current) return;
     const updated = fn(current);
     const { id: _id, ...data } = updated;
-    setDoc(doc(db, "equipment", String(id)), data).catch(console.error);
+    setDoc(doc(db, "equipment", String(id)), data).catch((err) => {
+      console.error("Save failed:", err);
+      if (onError) {
+        onError(err);
+      } else {
+        window.alert("Could not save changes. Error: " + err.message);
+      }
+    });
   };
 
   function deleteEquipment(id) {
@@ -458,77 +423,117 @@ export default function App() {
   }
 
   // ── Receipt / Document upload ──
+  // Compress an image data URL down to a safe size for Firestore (max ~700KB doc limit safety margin)
+  const compressImage = (dataUrl, maxWidth = 1200, quality = 0.7) => {
+    return new Promise((resolve) => {
+      const img = new Image();
+      img.onload = () => {
+        let { width, height } = img;
+        if (width > maxWidth) {
+          height = Math.round((height * maxWidth) / width);
+          width = maxWidth;
+        }
+        const canvas = document.createElement("canvas");
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext("2d");
+        ctx.drawImage(img, 0, 0, width, height);
+        resolve(canvas.toDataURL("image/jpeg", quality));
+      };
+      img.onerror = () => resolve(dataUrl); // fallback to original if compression fails
+      img.src = dataUrl;
+    });
+  };
+
   const handleFileSelect = useCallback(async (files, folder) => {
     if (!files || !files.length) return;
     const file = files[0];
     const mimeType = file.type || "image/jpeg";
+    setUploadingDoc(true);
+
+    // Safety timeout — if anything hangs (large image, slow device), don't leave the user stuck forever
+    const timeoutId = setTimeout(() => {
+      setUploadingDoc(false);
+      window.alert("Upload is taking too long. Please try a smaller photo or check your connection, then try again.");
+    }, 20000);
+
     const reader = new FileReader();
     reader.onload = async (ev) => {
-      const dataUrl = ev.target.result;
-      const base64 = dataUrl.split(",")[1];
-      const preview = dataUrl;
-      const docEntry = { id: Date.now()+Math.random(), name: file.name, preview, folder, uploadedAt: new Date().toISOString().slice(0,10), aiScanned: false, extractedAmount: null, extractedVendor: "", extractedDesc: "", extractedCategory: "Other" };
+      try {
+        const dataUrl = ev.target.result;
+        const isImage = mimeType.startsWith("image/");
+        const preview = isImage ? await compressImage(dataUrl) : dataUrl;
+        const base64 = preview.split(",")[1];
+        const docEntry = { id: Date.now()+Math.random(), name: file.name, preview, folder, uploadedAt: new Date().toISOString().slice(0,10), aiScanned: false, extractedAmount: null, extractedVendor: "", extractedDesc: "", extractedCategory: "Other" };
 
-      if (folder === DOC_FOLDERS[0]) {
-        // Expense Receipts → AI scan
-        setScanLoading(true);
-        setPendingUpload({ base64, mimeType, name: file.name, folder, preview, docEntry });
-        setScanResult(null);
-        setShowReceiptModal(folder);
-        const result = await scanReceiptWithAI(base64, mimeType);
-        setScanLoading(false);
-        if (result) {
-          setScanResult(result);
+        clearTimeout(timeoutId);
+
+        if (folder === DOC_FOLDERS[0]) {
+          // Expense Receipts → manual amount entry
+          setPendingUpload({ base64, mimeType, name: file.name, folder, preview, docEntry });
+          setShowReceiptModal(folder);
+          setUploadingDoc(false);
+        } else {
+          // Non-expense folders → just store
+          updEq(selectedId, e => {
+            const docs = { ...e.docs };
+            docs[folder] = [...(docs[folder]||[]), docEntry];
+            return { ...e, docs };
+          }, (err) => {
+            window.alert("Could not upload this document. The image may be too large. Error: " + err.message);
+          });
+          setUploadingDoc(false);
         }
-      } else {
-        // Non-expense folders → just store without AI
-        updEq(selectedId, e => {
-          const docs = { ...e.docs };
-          docs[folder] = [...(docs[folder]||[]), docEntry];
-          return { ...e, docs };
-        });
+      } catch (err) {
+        clearTimeout(timeoutId);
+        setUploadingDoc(false);
+        console.error("Upload processing failed:", err);
+        window.alert("Could not process this file. Please try a different photo. Error: " + (err?.message || "Unknown error"));
       }
+    };
+    reader.onerror = () => {
+      clearTimeout(timeoutId);
+      setUploadingDoc(false);
+      window.alert("Could not read this file. Please try a different image.");
     };
     reader.readAsDataURL(file);
   }, [selectedId]);
 
   function confirmReceiptSave(overrideAmount) {
-    if (!pendingUpload || !scanResult) return;
+    if (!pendingUpload) return;
     const { docEntry, folder } = pendingUpload;
-    // Use manual override amount if provided, otherwise use AI amount
-    const finalAmount = overrideAmount != null
-      ? (parseFloat(overrideAmount) || 0)
-      : (scanResult.total || 0);
+    const finalAmount = parseFloat(overrideAmount) || 0;
     const confirmed = {
       ...docEntry,
-      aiScanned: true,
+      aiScanned: false,
       extractedAmount: finalAmount,
-      extractedVendor: scanResult.vendor || "",
-      extractedDesc: scanResult.description || "",
-      extractedCategory: scanResult.category || "Other",
-      extractedDate: scanResult.date || docEntry.uploadedAt,
-      manuallyEdited: overrideAmount != null,
+      extractedVendor: "",
+      extractedDesc: "",
+      extractedCategory: "Other",
+      extractedDate: docEntry.uploadedAt,
+      manuallyEdited: true,
     };
-    // Add doc to folder
+    // Combine doc + cost into a single Firestore write to avoid race conditions and partial failures
     updEq(selectedId, e => {
       const docs = { ...e.docs };
       docs[folder] = [...(docs[folder]||[]), confirmed];
-      return { ...e, docs };
+      let costs = e.costs;
+      if (finalAmount > 0) {
+        const costEntry = {
+          id: Date.now(),
+          category: "Other",
+          description: "Receipt",
+          amount: finalAmount,
+          date: new Date().toISOString().slice(0,10),
+          fromReceipt: true,
+          receiptId: confirmed.id,
+        };
+        costs = [...e.costs, costEntry];
+      }
+      return { ...e, docs, costs };
+    }, (err) => {
+      window.alert("Could not save the receipt. The image may be too large or you may be offline. Error: " + err.message);
     });
-    // Auto-add cost if amount > 0
-    if (finalAmount > 0) {
-      const costEntry = {
-        id: Date.now(),
-        category: scanResult.category || "Other",
-        description: `${scanResult.vendor ? scanResult.vendor+": " : ""}${scanResult.description || "Receipt"}`,
-        amount: finalAmount,
-        date: scanResult.date || new Date().toISOString().slice(0,10),
-        fromReceipt: true,
-        receiptId: confirmed.id,
-      };
-      updEq(selectedId, e => ({ ...e, costs: [...e.costs, costEntry] }));
-    }
-    setScanResult(null);
     setPendingUpload(null);
     setManualAmount("");
     setShowReceiptModal(null);
@@ -539,6 +544,8 @@ export default function App() {
       const docs = { ...e.docs };
       docs[folder] = (docs[folder]||[]).filter(d => d.id !== docId);
       return { ...e, docs };
+    }, (err) => {
+      window.alert("Could not delete this document. Error: " + err.message);
     });
   }
 
@@ -1097,16 +1104,23 @@ items.forEach(function(item, idx){
             <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:12 }}>
               <div style={{ fontSize:12, color:"#7a8aaa" }}>
                 {activeFolder === "Expense Receipts"
-                  ? "📷 Upload a receipt — AI will extract the amount and add it to costs automatically."
+                  ? "📷 Upload a receipt — you'll enter the amount and it's added to costs automatically."
                   : activeFolder === "Tax Exemption Form"
                   ? "📋 Store tax exemption forms for this unit."
                   : "🧾 Store the original purchase receipt/bill of sale."}
               </div>
-              <label style={{...S.btn("primary"), cursor:"pointer", display:"inline-block", padding:"7px 14px", fontSize:12}}>
-                + Upload {activeFolder === "Expense Receipts" ? "Receipt" : "Document"}
-                <input type="file" accept="image/*,application/pdf" style={{display:"none"}} onChange={ev => handleFileSelect(ev.target.files, activeFolder)} />
+              <label style={{...S.btn("primary"), cursor: uploadingDoc ? "default" : "pointer", display:"inline-block", padding:"7px 14px", fontSize:12, opacity: uploadingDoc ? 0.6 : 1}}>
+                {uploadingDoc ? "⏳ Processing…" : `+ Upload ${activeFolder === "Expense Receipts" ? "Receipt" : "Document"}`}
+                <input type="file" accept="image/*,application/pdf" style={{display:"none"}} disabled={uploadingDoc} onChange={ev => handleFileSelect(ev.target.files, activeFolder)} />
               </label>
             </div>
+            {uploadingDoc && (
+              <div style={{display:"flex",alignItems:"center",gap:8,padding:"8px 0",marginBottom:8}}>
+                <div style={{width:14,height:14,border:"2px solid #c9a227",borderTopColor:"transparent",borderRadius:"50%",animation:"spin 0.8s linear infinite"}} />
+                <span style={{color:"#8a9aba",fontSize:12}}>Processing photo, please wait…</span>
+                <style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style>
+              </div>
+            )}
 
             {/* File grid */}
             {folderDocs.length === 0
@@ -2123,132 +2137,43 @@ items.forEach(function(item, idx){
         </div>
       )}
 
-      {/* ── AI Receipt Scan Modal ── */}
+      {/* ── Add Receipt Modal ── */}
       {showReceiptModal && (
-        <div style={S.modal} onClick={()=>{ if(!scanLoading){ setShowReceiptModal(null); setScanResult(null); setPendingUpload(null); setManualAmount(""); } }}>
+        <div style={S.modal} onClick={()=>{ setShowReceiptModal(null); setPendingUpload(null); setManualAmount(""); }}>
           <div style={S.modalCard} onClick={e=>e.stopPropagation()}>
-            <h3 style={{margin:"0 0 6px",color:"#edf2fc"}}>📷 AI Receipt Scan</h3>
-            <p style={{color:"#7a8aaa",fontSize:13,margin:"0 0 16px"}}>Scanning your receipt and extracting expense details…</p>
+            <h3 style={{margin:"0 0 6px",color:"#edf2fc"}}>📷 Add Expense Receipt</h3>
+            <p style={{color:"#7a8aaa",fontSize:13,margin:"0 0 16px"}}>Enter the receipt amount to add it to this PO's cost total.</p>
 
             {pendingUpload?.preview && (
               <img src={pendingUpload.preview} alt="Receipt" style={{width:"100%",maxHeight:200,objectFit:"contain",borderRadius:8,background:"#111520",marginBottom:16,border:"1px solid #2e3a58"}} />
             )}
 
-            {scanLoading && (
-              <div style={{display:"flex",alignItems:"center",gap:12,padding:"20px 0",justifyContent:"center"}}>
-                <div style={{width:20,height:20,border:"2px solid #b45309",borderTopColor:"transparent",borderRadius:"50%",animation:"spin 0.8s linear infinite"}} />
-                <span style={{color:"#8a9aba"}}>AI is reading your receipt…</span>
-                <style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style>
-              </div>
-            )}
-
-            {!scanLoading && scanResult && (
-              <div>
-                {/* AI extracted details */}
-                <div style={{background:"#111520",borderRadius:8,padding:14,marginBottom:14,border:"1px solid #2d4060"}}>
-                  <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
-                    <span style={{...S.secTitle,marginBottom:0}}>AI Extracted Details</span>
-                    <span style={{fontSize:11,padding:"2px 8px",borderRadius:4,
-                      background: scanResult.confidence==="high"?"#14530a":scanResult.confidence==="medium"?"#8a7010":"#7f1d1d",
-                      color: scanResult.confidence==="high"?"#4ade80":scanResult.confidence==="medium"?"#facc15":"#f87171",
-                      fontWeight:600}}>
-                      {scanResult.confidence?.toUpperCase()} CONFIDENCE
-                    </span>
-                  </div>
-                  <div style={S.grid2}>
-                    <div><span style={S.label}>Vendor</span><span style={{color:"#edf2fc"}}>{scanResult.vendor||"—"}</span></div>
-                    <div><span style={S.label}>Date</span><span style={{color:"#edf2fc"}}>{scanResult.date||"—"}</span></div>
-                    <div><span style={S.label}>Category</span><span style={{color:"#edf2fc"}}>{scanResult.category}</span></div>
-                    {scanResult.description && <div><span style={S.label}>Description</span><span style={{color:"#edf2fc",fontSize:12}}>{scanResult.description}</span></div>}
-                  </div>
+            <div style={{background:"#111828",border:"2px solid #c9a227",borderRadius:10,padding:"14px 16px",marginBottom:16}}>
+              <label style={{...S.label,marginBottom:6}}>Receipt Amount ($)</label>
+              <input
+                style={{...S.input, fontSize:18, fontWeight:700, color:"#c9a227"}}
+                type="number"
+                inputMode="decimal"
+                placeholder="0.00"
+                value={manualAmount}
+                onChange={e=>setManualAmount(e.target.value)}
+                autoFocus
+              />
+              {manualAmount!=="" && (
+                <div style={{fontSize:12,color:"#c9a227",marginTop:6}}>
+                  {fmt(parseFloat(manualAmount)||0)} will be added to this PO's cost total
                 </div>
+              )}
+            </div>
 
-                {/* Amount selection — AI or Manual */}
-                <div style={{marginBottom:16}}>
-                  <div style={{fontSize:11,color:"#c9a227",textTransform:"uppercase",letterSpacing:"0.1em",fontWeight:700,marginBottom:10}}>
-                    Choose Amount to Add
-                  </div>
-
-                  {/* Option A: Accept AI amount */}
-                  <div style={{background: manualAmount==="" ? "#0f2a18" : "#1e2235",
-                    border: `2px solid ${manualAmount==="" ? "#22c55e" : "#2a3055"}`,
-                    borderRadius:10, padding:"12px 14px", marginBottom:10, cursor:"pointer",
-                    transition:"all 0.15s"}}
-                    onClick={()=>setManualAmount("")}>
-                    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-                      <div>
-                        <div style={{display:"flex",alignItems:"center",gap:8}}>
-                          <div style={{width:18,height:18,borderRadius:"50%",
-                            border:`2px solid ${manualAmount===""?"#22c55e":"#4a5a7a"}`,
-                            background:manualAmount===""?"#22c55e":"transparent",
-                            flexShrink:0,transition:"all 0.15s"}} />
-                          <span style={{fontWeight:700,color:"#edf2fc",fontSize:14}}>Accept AI Amount</span>
-                        </div>
-                        <div style={{fontSize:12,color:"#6a7a9a",marginTop:3,paddingLeft:26}}>Use what AI read from the receipt</div>
-                      </div>
-                      <span style={{fontSize:26,fontWeight:900,color:scanResult.total>0?"#22c55e":"#f87171",fontVariantNumeric:"tabular-nums"}}>
-                        {fmt(scanResult.total)}
-                      </span>
-                    </div>
-                    {scanResult.total === 0 && (
-                      <div style={{fontSize:11,color:"#f87171",marginTop:6,paddingLeft:26}}>⚠️ AI could not find an amount — no cost will be added</div>
-                    )}
-                  </div>
-
-                  {/* Option B: Enter manual amount */}
-                  <div style={{background: manualAmount!=="" ? "#111828" : "#1e2235",
-                    border: `2px solid ${manualAmount!=="" ? "#c9a227" : "#2a3055"}`,
-                    borderRadius:10, padding:"12px 14px", transition:"all 0.15s"}}>
-                    <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:8}}>
-                      <div style={{width:18,height:18,borderRadius:"50%",
-                        border:`2px solid ${manualAmount!==""?"#c9a227":"#4a5a7a"}`,
-                        background:manualAmount!==""?"#c9a227":"transparent",
-                        flexShrink:0,transition:"all 0.15s"}} />
-                      <span style={{fontWeight:700,color:"#edf2fc",fontSize:14}}>Enter Amount Manually</span>
-                    </div>
-                    <div style={{paddingLeft:26}}>
-                      <label style={{...S.label,marginBottom:5}}>Correct Amount ($)</label>
-                      <input
-                        style={{...S.input, fontSize:18, fontWeight:700, color:"#c9a227",
-                          border:`1px solid ${manualAmount!==""?"#c9a227":"#384870"}`}}
-                        type="number"
-                        inputMode="decimal"
-                        placeholder="0.00"
-                        value={manualAmount}
-                        onChange={e=>setManualAmount(e.target.value)}
-                        onClick={e=>e.stopPropagation()}
-                      />
-                      {manualAmount!=="" && (
-                        <div style={{fontSize:12,color:"#c9a227",marginTop:5}}>
-                          {fmt(parseFloat(manualAmount)||0)} will be added to this PO
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                </div>
-
-                {/* Action buttons */}
-                <div style={{display:"flex",gap:8}}>
-                  <button style={{...S.btn("ghost"),flex:1}}
-                    onClick={()=>{setShowReceiptModal(null);setScanResult(null);setPendingUpload(null);setManualAmount("");}}>
-                    Cancel
-                  </button>
-                  <button style={{...S.btn("success"),flex:2}}
-                    onClick={()=>confirmReceiptSave(manualAmount!=="" ? manualAmount : null)}>
-                    ✓ Save Receipt &amp; Add {manualAmount!=="" ? fmt(parseFloat(manualAmount)||0) : fmt(scanResult.total)}
-                  </button>
-                </div>
-              </div>
-            )}
-
-            {!scanLoading && !scanResult && (
-              <div style={{textAlign:"center",color:"#f87171",padding:"16px 0"}}>
-                Could not read receipt. Please try again with a clearer image.
-                <div style={{marginTop:12}}>
-                  <button style={S.btn("ghost")} onClick={()=>{setShowReceiptModal(null);setPendingUpload(null);setManualAmount("");}}>Close</button>
-                </div>
-              </div>
-            )}
+            <div style={{display:"flex",gap:8}}>
+              <button style={{...S.btn("ghost"),flex:1}} onClick={()=>{setShowReceiptModal(null);setPendingUpload(null);setManualAmount("");}}>Cancel</button>
+              <button
+                style={{...S.btn("success"),flex:2}}
+                onClick={()=>confirmReceiptSave(manualAmount!=="" ? manualAmount : "0")}>
+                ✓ Save Receipt &amp; Add {fmt(parseFloat(manualAmount)||0)}
+              </button>
+            </div>
           </div>
         </div>
       )}
