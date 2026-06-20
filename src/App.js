@@ -30,7 +30,14 @@ const fmtNum = (n) => n == null || n === "" ? "—" : Number(n).toLocaleString()
 
 function generatePO(existing) {
   const year = new Date().getFullYear().toString().slice(-2);
-  const nums = existing.map((e) => parseInt(e.poNumber?.replace(/[^0-9]/g,"") || "0")).filter(n => !isNaN(n));
+  // Extract only the last segment after the final "-" (the actual PO number), ignoring the year prefix
+  const nums = existing
+    .map((e) => {
+      const parts = (e.poNumber || "").split("-");
+      const lastPart = parts[parts.length - 1];
+      return parseInt(lastPart, 10);
+    })
+    .filter((n) => !isNaN(n));
   const next = nums.length ? Math.max(...nums) + 1 : 1597;
   return `PO-${year}-${String(next).padStart(4,"0")}`;
 }
