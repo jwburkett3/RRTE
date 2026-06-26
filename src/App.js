@@ -30,14 +30,15 @@ const fmtNum = (n) => n == null || n === "" ? "—" : Number(n).toLocaleString()
 
 function generatePO(existing) {
   const year = new Date().getFullYear().toString().slice(-2);
-  // Extract only the last segment after the final "-" (the actual PO number), ignoring the year prefix
+  // Extract only the last segment after the final "-"
+  // Filter out clearly-wrong numbers (anything >= 10000 is a bad PO from a previous bug)
   const nums = existing
     .map((e) => {
       const parts = (e.poNumber || "").split("-");
       const lastPart = parts[parts.length - 1];
       return parseInt(lastPart, 10);
     })
-    .filter((n) => !isNaN(n));
+    .filter((n) => !isNaN(n) && n < 10000); // ignore malformed PO numbers like 260988
   const next = nums.length ? Math.max(...nums) + 1 : 1597;
   return `PO-${year}-${String(next).padStart(4,"0")}`;
 }
@@ -464,13 +465,17 @@ export default function App() {
         const isImage = mimeType.startsWith("image/");
         const preview = isImage ? await compressImage(dataUrl) : dataUrl;
         const base64 = preview.split(",")[1];
-        const docEntry = { id: Date.now()+Math.random(), name: file.name, preview, folder, uploadedAt: new Date().toISOString().slice(0,10), aiScanned: false, extractedAmount: null, extractedVendor: "", extractedDesc: "", extractedCategory: "Other" };
+        // Store a small thumbnail for display but NOT the full base64 in Firestore
+      // (full-size base64 on a phone photo can exceed Firestore's 1MB doc limit)
+      const thumbPromise = isImage ? compressImage(dataUrl, 400, 0.5) : Promise.resolve(null);
+      const thumb = await thumbPromise;
+      const docEntry = { id: Date.now()+Math.random(), name: file.name, thumb, folder, uploadedAt: new Date().toISOString().slice(0,10), aiScanned: false, extractedAmount: null, extractedVendor: "", extractedDesc: "", extractedCategory: "Other" };
 
         clearTimeout(timeoutId);
 
         if (folder === DOC_FOLDERS[0]) {
           // Expense Receipts → manual amount entry
-          setPendingUpload({ base64, mimeType, name: file.name, folder, preview, docEntry });
+          setPendingUpload({ base64, mimeType, name: file.name, folder, preview, docEntry }); // preview is local-only, not in docEntry
           setShowReceiptModal(folder);
           setUploadingDoc(false);
         } else {
