@@ -1,6 +1,6 @@
 import { useState, useMemo, useRef, useCallback, useEffect } from "react";
 import { initializeApp, getApps } from "firebase/app";
-import { getFirestore, collection, doc, onSnapshot, setDoc, deleteDoc, getDocs } from "firebase/firestore";
+import { getFirestore, collection, doc, onSnapshot, setDoc, deleteDoc, getDocs, runTransaction } from "firebase/firestore";
 
 // ─── Firebase Init ─────────────────────────────────────────────────────────────
 const firebaseConfig = {
@@ -28,19 +28,23 @@ const STATUS_COLORS = {
 const fmt = (n) => n == null || n === "" ? "—" : "$" + Number(n).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const fmtNum = (n) => n == null || n === "" ? "—" : Number(n).toLocaleString();
 
-function generatePO(existing) {
+// ── PO counter — uses a dedicated Firestore document to guarantee sequential numbers ──
+// This is an atomic transaction: read current counter, increment it, write it back.
+// Two teammates adding equipment at the same time will never get the same PO number.
+async function generatePO(db) {
   const year = new Date().getFullYear().toString().slice(-2);
-  // Extract only the last segment after the final "-"
-  // Filter out clearly-wrong numbers (anything >= 10000 is a bad PO from a previous bug)
-  const nums = existing
-    .map((e) => {
-      const parts = (e.poNumber || "").split("-");
-      const lastPart = parts[parts.length - 1];
-      return parseInt(lastPart, 10);
-    })
-    .filter((n) => !isNaN(n) && n < 10000); // ignore malformed PO numbers like 260988
-  const next = nums.length ? Math.max(...nums) + 1 : 1597;
-  return `PO-${year}-${String(next).padStart(4,"0")}`;
+  const counterRef = doc(db, "counters", "poNumber");
+  let nextNum = 1597;
+  await runTransaction(db, async (tx) => {
+    const snap = await tx.get(counterRef);
+    if (snap.exists()) {
+      nextNum = (snap.data().current || 1596) + 1;
+    } else {
+      nextNum = 1597;
+    }
+    tx.set(counterRef, { current: nextNum });
+  });
+  return `PO-${year}-${String(nextNum).padStart(4,"0")}`;
 }
 
 function getTotals(e) {
@@ -230,8 +234,8 @@ export default function App() {
   }
 
   // ── Equipment CRUD ──
-  function addEquipment() {
-    const po = generatePO(equipment);
+  async function addEquipment() {
+    const po = await generatePO(db);
     const docFolders = {};
     DOC_FOLDERS.forEach(f => docFolders[f] = []);
     const id = String(Date.now() + Math.random());
@@ -356,7 +360,7 @@ export default function App() {
     setDoc(doc(db, "logistics", String(id)), { ...data, readyForPickup: !item.readyForPickup }).catch(console.error);
   }
 
-  function moveToInventory(id) {
+  async function moveToInventory(id) {
     const item = logisticsItems.find(i => i.id === id);
     if (!item) {
       window.alert("This item no longer exists in Logistics — it may have already been moved.");
@@ -368,7 +372,7 @@ export default function App() {
     }
     const docFolders = {};
     DOC_FOLDERS.forEach(f => docFolders[f] = []);
-    const po = generatePO(equipment);
+    const po = await generatePO(db);
     const newId = String(Date.now() + Math.random());
     const inventoryEntry = {
       poNumber: po, make: item.make, model: item.model, year: item.year,
@@ -393,7 +397,7 @@ export default function App() {
       });
   }
 
-  function addTradeIn() {
+  async function addTradeIn() {
     const tradePoNumber = selected.poNumber;
     const val = parseFloat(tradeInfo.tradeAllowance) || 0;
     updEq(selectedId, e => ({
@@ -403,7 +407,7 @@ export default function App() {
     }));
     const docFolders = {};
     DOC_FOLDERS.forEach(f => docFolders[f] = []);
-    const po = generatePO(equipment);
+    const po = await generatePO(db);
     const tradeId = String(Date.now() + Math.random());
     setDoc(doc(db, "equipment", tradeId), {
       poNumber:po, make:tradeInfo.make, model:tradeInfo.model, year:tradeInfo.year,
