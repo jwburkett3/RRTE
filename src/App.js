@@ -275,7 +275,27 @@ export default function App() {
     const netMargin = sp2 - (soldTotals.totalIn || 0);
     const commPct = sellInfo.commissionPct || 0;
     const commAmt = netMargin > 0 ? parseFloat(((netMargin * commPct) / 100).toFixed(2)) : 0;
-    updEq(selectedId, e => ({ ...e, status:"Sold", salePrice:sp2, soldTo:sellInfo.soldTo, saleDate:sellInfo.saleDate, commissionPct:commPct, commissionAmt:commAmt }));
+
+    // Add commission as a cost entry so it reduces margin automatically everywhere
+    const commissionCostEntry = commAmt > 0 ? [{
+      id: Date.now(),
+      category: "Other",
+      description: `Salesman Commission (${commPct}%)`,
+      amount: commAmt,
+      date: sellInfo.saleDate || new Date().toISOString().slice(0,10),
+      isCommission: true,
+    }] : [];
+
+    updEq(selectedId, e => ({
+      ...e,
+      status: "Sold",
+      salePrice: sp2,
+      soldTo: sellInfo.soldTo,
+      saleDate: sellInfo.saleDate,
+      commissionPct: commPct,
+      commissionAmt: commAmt,
+      costs: [...(e.costs || []), ...commissionCostEntry],
+    }));
     // Flip linked trade-ins to Active
     if (poNum) {
       equipment.filter(e => e.isTradeIn && e.tradeOnPoNumber === poNum && e.status === "Trade-In")
@@ -2140,10 +2160,18 @@ items.forEach(function(item, idx){
                     <span style={{fontWeight:700,color:profit>=0?"#4ade80":"#f87171"}}>{fmt(profit)}</span>
                   </div>
                   {sellInfo.commissionPct > 0 && profit > 0 && (
-                    <div style={{display:"flex",justifyContent:"space-between"}}>
-                      <span style={{color:"#c9a227"}}>Commission ({sellInfo.commissionPct}% of profit):</span>
-                      <span style={{fontWeight:700,color:"#c9a227"}}>{fmt((profit * sellInfo.commissionPct) / 100)}</span>
-                    </div>
+                    <>
+                      <div style={{display:"flex",justifyContent:"space-between"}}>
+                        <span style={{color:"#c9a227"}}>Commission ({sellInfo.commissionPct}% of profit):</span>
+                        <span style={{fontWeight:700,color:"#c9a227"}}>− {fmt((profit * sellInfo.commissionPct) / 100)}</span>
+                      </div>
+                      <div style={{display:"flex",justifyContent:"space-between",borderTop:"1px solid #2d4060",paddingTop:6}}>
+                        <span style={{color:"#edf2fc",fontWeight:700}}>Net After Commission:</span>
+                        <span style={{fontWeight:900,fontSize:16,color:profit - (profit * sellInfo.commissionPct / 100)>=0?"#4ade80":"#f87171"}}>
+                          {fmt(profit - (profit * sellInfo.commissionPct / 100))}
+                        </span>
+                      </div>
+                    </>
                   )}
                 </div>
               );
