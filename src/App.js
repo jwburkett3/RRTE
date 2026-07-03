@@ -1,6 +1,6 @@
 import { useState, useMemo, useRef, useCallback, useEffect } from "react";
 import { initializeApp, getApps } from "firebase/app";
-import { getFirestore, collection, doc, onSnapshot, setDoc, deleteDoc, getDocs, runTransaction } from "firebase/firestore";
+import { getFirestore, collection, doc, onSnapshot, setDoc, deleteDoc, getDocs, runTransaction, arrayUnion, arrayRemove, updateDoc } from "firebase/firestore";
 
 // ─── Firebase Init ─────────────────────────────────────────────────────────────
 const firebaseConfig = {
@@ -484,11 +484,10 @@ export default function App() {
           setUploadingDoc(false);
         } else {
           // Non-expense folders → just store
-          updEq(selectedId, e => {
-            const docs = { ...e.docs };
-            docs[folder] = [...(docs[folder]||[]), docEntry];
-            return { ...e, docs };
-          }, (err) => {
+          // Use arrayUnion to safely append without overwriting existing docs in the folder
+          updateDoc(doc(db, "equipment", String(selectedId)), {
+            [`docs.${folder}`]: arrayUnion(docEntry),
+          }).catch((err) => {
             window.alert("Could not upload this document. The image may be too large. Error: " + err.message);
           });
           setUploadingDoc(false);
@@ -523,24 +522,24 @@ export default function App() {
       manuallyEdited: true,
     };
     // Combine doc + cost into a single Firestore write to avoid race conditions and partial failures
-    updEq(selectedId, e => {
-      const docs = { ...e.docs };
-      docs[folder] = [...(docs[folder]||[]), confirmed];
-      let costs = e.costs;
-      if (finalAmount > 0) {
-        const costEntry = {
-          id: Date.now(),
-          category: "Other",
-          description: "Receipt",
-          amount: finalAmount,
-          date: new Date().toISOString().slice(0,10),
-          fromReceipt: true,
-          receiptId: confirmed.id,
-        };
-        costs = [...e.costs, costEntry];
-      }
-      return { ...e, docs, costs };
-    }, (err) => {
+    // Use arrayUnion to safely append the doc without overwriting existing ones
+    const equipRef = doc(db, "equipment", String(selectedId));
+    const updateData = {
+      [`docs.${folder}`]: arrayUnion(confirmed),
+    };
+    if (finalAmount > 0) {
+      const costEntry = {
+        id: Date.now(),
+        category: "Other",
+        description: "Receipt",
+        amount: finalAmount,
+        date: new Date().toISOString().slice(0,10),
+        fromReceipt: true,
+        receiptId: confirmed.id,
+      };
+      updateData.costs = arrayUnion(costEntry);
+    }
+    updateDoc(equipRef, updateData).catch((err) => {
       window.alert("Could not save the receipt. The image may be too large or you may be offline. Error: " + err.message);
     });
     setPendingUpload(null);
@@ -549,11 +548,14 @@ export default function App() {
   }
 
   function deleteDocFromFolder(folder, docId) {
-    updEq(selectedId, e => {
-      const docs = { ...e.docs };
-      docs[folder] = (docs[folder]||[]).filter(d => d.id !== docId);
-      return { ...e, docs };
-    }, (err) => {
+    // Find the exact doc object so arrayRemove can match it
+    const eq = equipment.find(e => e.id === selectedId);
+    if (!eq) return;
+    const docObj = (eq.docs?.[folder] || []).find(d => d.id === docId);
+    if (!docObj) return;
+    updateDoc(doc(db, "equipment", String(selectedId)), {
+      [`docs.${folder}`]: arrayRemove(docObj),
+    }).catch((err) => {
       window.alert("Could not delete this document. Error: " + err.message);
     });
   }
