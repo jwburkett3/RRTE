@@ -153,7 +153,7 @@ export default function App() {
 
   const [newEquip, setNE] = useState({ make:"", model:"", year:"", serialNumber:"", hours:"", purchasePrice:"", purchaseFrom:"", checkNumber:"", equipType:"Farm", notes:"", isTradeIn:false, tradeOnPoNumber:"", tradeAllowance:"" });
   const [newCost, setNC] = useState({ category:"Trucking", description:"", amount:"", date:new Date().toISOString().slice(0,10) });
-  const [sellInfo, setSI] = useState({ salePrice:"", soldTo:"", saleDate:new Date().toISOString().slice(0,10) });
+  const [sellInfo, setSI] = useState({ salePrice:"", soldTo:"", saleDate:new Date().toISOString().slice(0,10), commissionPct:0 });
   const [tradeInfo, setTI] = useState({ make:"", model:"", year:"", serialNumber:"", hours:"", tradeAllowance:"", equipType:"Farm", notes:"" });
 
   // ── Logistics state ──
@@ -270,7 +270,12 @@ export default function App() {
   function markSold() {
     if (!sellInfo.salePrice) return;
     const poNum = equipment.find(e => e.id === selectedId)?.poNumber;
-    updEq(selectedId, e => ({ ...e, status:"Sold", salePrice:parseFloat(sellInfo.salePrice), soldTo:sellInfo.soldTo, saleDate:sellInfo.saleDate }));
+    const sp2 = parseFloat(sellInfo.salePrice) || 0;
+    const soldTotals = getTotals(equipment.find(e => e.id === selectedId) || {});
+    const netMargin = sp2 - (soldTotals.totalIn || 0);
+    const commPct = sellInfo.commissionPct || 0;
+    const commAmt = netMargin > 0 ? parseFloat(((netMargin * commPct) / 100).toFixed(2)) : 0;
+    updEq(selectedId, e => ({ ...e, status:"Sold", salePrice:sp2, soldTo:sellInfo.soldTo, saleDate:sellInfo.saleDate, commissionPct:commPct, commissionAmt:commAmt }));
     // Flip linked trade-ins to Active
     if (poNum) {
       equipment.filter(e => e.isTradeIn && e.tradeOnPoNumber === poNum && e.status === "Trade-In")
@@ -280,7 +285,7 @@ export default function App() {
         });
     }
     setShowSell(false);
-    setSI({ salePrice:"", soldTo:"", saleDate:new Date().toISOString().slice(0,10) });
+    setSI({ salePrice:"", soldTo:"", saleDate:new Date().toISOString().slice(0,10), commissionPct:0 });
   }
 
   function toggleSoldInline(id, salePrice) {
@@ -583,7 +588,8 @@ export default function App() {
     const totalRevenue = rows.reduce((s,r) => s+(r.salePrice||0), 0);
     const totalCostIn = rows.reduce((s,r) => s+r.totalIn, 0);
     const totalProfit = rows.reduce((s,r) => s+(r.margin||0), 0);
-    return { rows, totalRevenue, totalCostIn, totalProfit };
+    const totalCommission = rows.reduce((s,r) => s+(r.commissionAmt||0), 0);
+    return { rows, totalRevenue, totalCostIn, totalProfit, totalCommission };
   }, [equipment, reportMonth]);
 
   // ── Memoized map HTML — only recalculates when logisticsItems change ──
@@ -858,6 +864,7 @@ items.forEach(function(item, idx){
           <div style={S.statCard("#4ade80")}><div style={{...S.statVal("#4ade80"),fontSize:20}}>{fmt(totalRevenue)}</div><div style={S.statLbl}>Total Revenue</div></div>
           <div style={S.statCard("#f87171")}><div style={{...S.statVal("#f87171"),fontSize:20}}>{fmt(totalCostIn)}</div><div style={S.statLbl}>Total Cost In</div></div>
           <div style={S.statCard(totalProfit>=0?"#4ade80":"#f87171")}><div style={{...S.statVal(totalProfit>=0?"#4ade80":"#f87171"),fontSize:20}}>{fmt(totalProfit)}</div><div style={S.statLbl}>Net Profit / Loss</div></div>
+          <div style={S.statCard("#c9a227")}><div style={{...S.statVal("#c9a227"),fontSize:20}}>{fmt(totalCommission)}</div><div style={S.statLbl}>💰 Commission Owed</div></div>
         </div>
 
         {rows.length === 0 ? (
@@ -868,11 +875,11 @@ items.forEach(function(item, idx){
           <div style={S.card}>
             <div style={S.secTitle}>{monthLabel} — Sold Units Detail</div>
             {/* Header row */}
-            <div style={{ display:"grid", gridTemplateColumns:"120px 1fr 110px 110px 110px 100px", gap:8, padding:"6px 8px", color:"#4a5a7a", fontSize:11, textTransform:"uppercase", letterSpacing:"0.06em", borderBottom:"1px solid #2a3055", marginBottom:4 }}>
-              <span>PO #</span><span>Unit</span><span>Total In</span><span>Sale Price</span><span>Profit / Loss</span><span>Margin</span>
+            <div style={{ display:"grid", gridTemplateColumns:"110px 1fr 100px 100px 100px 80px 100px", gap:8, padding:"6px 8px", color:"#4a5a7a", fontSize:11, textTransform:"uppercase", letterSpacing:"0.06em", borderBottom:"1px solid #2a3055", marginBottom:4 }}>
+              <span>PO #</span><span>Unit</span><span>Total In</span><span>Sale Price</span><span>Profit/Loss</span><span>Margin</span><span>Commission</span>
             </div>
             {rows.map(r => (
-              <div key={r.id} style={{ display:"grid", gridTemplateColumns:"120px 1fr 110px 110px 110px 100px", gap:8, padding:"10px 8px", borderBottom:"1px solid #2a3055", cursor:"pointer", alignItems:"center" }}
+              <div key={r.id} style={{ display:"grid", gridTemplateColumns:"110px 1fr 100px 100px 100px 80px 100px", gap:8, padding:"10px 8px", borderBottom:"1px solid #2a3055", cursor:"pointer", alignItems:"center" }}
                 onClick={()=>{ setSelectedId(r.id); setView("detail"); }}>
                 <span style={S.poTag}>{r.poNumber}</span>
                 <div>
@@ -883,16 +890,18 @@ items.forEach(function(item, idx){
                 <span style={{ color:"#4ade80" }}>{fmt(r.salePrice)}</span>
                 <span style={{ color:r.margin>=0?"#4ade80":"#f87171", fontWeight:700 }}>{fmt(r.margin)}</span>
                 <span style={{ color:r.marginPct>=0?"#4ade80":"#f87171", fontSize:13 }}>{r.marginPct!=null?r.marginPct.toFixed(1)+"%":"—"}</span>
+                <span style={{ color:"#c9a227", fontWeight:600 }}>{r.commissionAmt>0?fmt(r.commissionAmt):r.commissionPct>0?"—":"0%"}</span>
               </div>
             ))}
             {/* Grand total row */}
-            <div style={{ display:"grid", gridTemplateColumns:"120px 1fr 110px 110px 110px 100px", gap:8, padding:"12px 8px", borderTop:"2px solid #b45309", marginTop:8, background:"#111520", borderRadius:6 }}>
+            <div style={{ display:"grid", gridTemplateColumns:"110px 1fr 100px 100px 100px 80px 100px", gap:8, padding:"12px 8px", borderTop:"2px solid #b45309", marginTop:8, background:"#111520", borderRadius:6 }}>
               <span />
               <span style={{ fontWeight:800, color:"#edf2fc", fontSize:14 }}>GRAND TOTAL</span>
               <span style={{ color:"#d4a817", fontWeight:700 }}>{fmt(totalCostIn)}</span>
               <span style={{ color:"#4ade80", fontWeight:700 }}>{fmt(totalRevenue)}</span>
               <span style={{ color:totalProfit>=0?"#4ade80":"#f87171", fontWeight:900, fontSize:15 }}>{fmt(totalProfit)}</span>
               <span style={{ color:totalProfit>=0?"#4ade80":"#f87171", fontSize:13, fontWeight:700 }}>{totalRevenue>0?((totalProfit/totalRevenue)*100).toFixed(1)+"%":"—"}</span>
+              <span style={{ color:"#c9a227", fontWeight:900, fontSize:15 }}>{fmt(totalCommission)}</span>
             </div>
           </div>
         )}
@@ -1949,7 +1958,14 @@ items.forEach(function(item, idx){
             ["add","+ Add Unit"],
             ["admin", adminUnlocked ? "⚙️ Admin" : "🔒 Admin"],
           ].map(([v,l]) => (
-            <button key={v} style={S.navBtn(view===v||(v==="list"&&view==="detail"))} onClick={()=>setView(v)}>{l}</button>
+            <button key={v} style={S.navBtn(view===v||(v==="list"&&view==="detail"))} onClick={()=>{
+              if (v === "report") {
+                // Auto-reset to current month whenever the report tab is opened
+                const d = new Date();
+                setReportMonth(`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}`);
+              }
+              setView(v);
+            }}>{l}</button>
           ))}
         </div>
       </div>
@@ -2078,6 +2094,25 @@ items.forEach(function(item, idx){
               <Field label="Sale Price ($)" value={sellInfo.salePrice} onChange={v=>setSI(p=>({...p,salePrice:v}))} type="number" placeholder="0.00" />
               <Field label="Sold To" value={sellInfo.soldTo} onChange={v=>setSI(p=>({...p,soldTo:v}))} placeholder="Customer, dealer, etc." />
               <Field label="Sale Date" value={sellInfo.saleDate} onChange={v=>setSI(p=>({...p,saleDate:v}))} type="date" />
+              {/* Commission % — admin only */}
+              <div>
+                <label style={S.label}>Salesman Commission %</label>
+                {adminUnlocked ? (
+                  <select
+                    style={{...S.input, appearance:"none"}}
+                    value={sellInfo.commissionPct}
+                    onChange={e=>setSI(p=>({...p,commissionPct:parseFloat(e.target.value)}))}>
+                    <option value={0}>0% — No Commission</option>
+                    <option value={5}>5%</option>
+                    <option value={10}>10%</option>
+                  </select>
+                ) : (
+                  <div style={{...S.input, color:"#4a5a7a", display:"flex", alignItems:"center", gap:8}}>
+                    <span>🔒</span>
+                    <span>{sellInfo.commissionPct}% (Admin only)</span>
+                  </div>
+                )}
+              </div>
             </div>
             {sellInfo.salePrice && (() => {
               const sp = parseFloat(sellInfo.salePrice) || 0;
@@ -2104,6 +2139,12 @@ items.forEach(function(item, idx){
                     <span style={{color:"#7a8aaa"}}>Your Profit / Loss:</span>
                     <span style={{fontWeight:700,color:profit>=0?"#4ade80":"#f87171"}}>{fmt(profit)}</span>
                   </div>
+                  {sellInfo.commissionPct > 0 && profit > 0 && (
+                    <div style={{display:"flex",justifyContent:"space-between"}}>
+                      <span style={{color:"#c9a227"}}>Commission ({sellInfo.commissionPct}% of profit):</span>
+                      <span style={{fontWeight:700,color:"#c9a227"}}>{fmt((profit * sellInfo.commissionPct) / 100)}</span>
+                    </div>
+                  )}
                 </div>
               );
             })()}
