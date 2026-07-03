@@ -842,7 +842,7 @@ items.forEach(function(item, idx){
   const renderReport = () => {
     const [ry, rm] = reportMonth.split("-").map(Number);
     const monthLabel = `${MONTHS[rm-1]} ${ry}`;
-    const { rows, totalRevenue, totalCostIn, totalProfit } = reportData;
+    const { rows, totalRevenue, totalCostIn, totalProfit, totalCommission } = reportData;
 
     return (
       <div>
