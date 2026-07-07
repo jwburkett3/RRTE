@@ -1168,21 +1168,22 @@ items.forEach(function(item, idx){
               : <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fill,minmax(150px,1fr))", gap:12 }}>
                   {folderDocs.map(doc => (
                     <div key={doc.id} style={{ background:"#111520", border:"1px solid #2e3a58", borderRadius:8, overflow:"hidden", cursor:"pointer" }}>
-                      <div style={{ position:"relative" }} onClick={()=>setShowDocViewer({src:doc.preview, name:doc.name})}>
-                        {doc.preview?.startsWith("data:image")
-                          ? <img src={doc.preview} alt={doc.name} style={{width:"100%",height:100,objectFit:"cover",display:"block"}} />
+                      <div style={{ position:"relative" }} onClick={()=>{
+                        const src = doc.thumb || doc.preview;
+                        if (src) setShowDocViewer({src, name:doc.name});
+                        else window.alert("This document cannot be previewed. It may have been uploaded before thumbnails were supported.");
+                      }}>
+                        {(doc.thumb || doc.preview)?.startsWith("data:image")
+                          ? <img src={doc.thumb || doc.preview} alt={doc.name} style={{width:"100%",height:100,objectFit:"cover",display:"block"}} />
                           : <div style={{width:"100%",height:100,background:"#1e2436",display:"flex",alignItems:"center",justifyContent:"center",fontSize:32}}>📄</div>
                         }
-                        {doc.aiScanned && <div style={{ position:"absolute",top:4,right:4,background:"#1e6030",color:"#93d570",fontSize:9,padding:"2px 5px",borderRadius:3,fontWeight:700 }}>AI ✓</div>}
+                        {doc.extractedAmount > 0 && <div style={{ position:"absolute",top:4,right:4,background:"#166534",color:"#4ade80",fontSize:9,padding:"2px 5px",borderRadius:3,fontWeight:700 }}>$ ✓</div>}
                       </div>
                       <div style={{ padding:"8px 8px 6px" }}>
                         <div style={{ fontSize:11, color:"#8a9aba", whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis" }}>{doc.name}</div>
                         <div style={{ fontSize:10, color:"#4a5a7a" }}>{doc.uploadedAt}</div>
-                        {doc.aiScanned && doc.extractedAmount > 0 && (
+                        {doc.extractedAmount > 0 && (
                           <div style={{ fontSize:12, color:"#4ade80", fontWeight:700, marginTop:2 }}>{fmt(doc.extractedAmount)}</div>
-                        )}
-                        {doc.aiScanned && doc.extractedVendor && (
-                          <div style={{ fontSize:10, color:"#7a8a9a" }}>{doc.extractedVendor}</div>
                         )}
                       </div>
                       <div style={{ borderTop:"1px solid #2a3055", padding:"4px 8px", display:"flex", justifyContent:"flex-end" }}>
