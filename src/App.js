@@ -492,19 +492,17 @@ export default function App() {
       try {
         const dataUrl = ev.target.result;
         const isImage = mimeType.startsWith("image/");
-        const preview = isImage ? await compressImage(dataUrl) : dataUrl;
-        const base64 = preview.split(",")[1];
-        // Store a small thumbnail for display but NOT the full base64 in Firestore
-      // (full-size base64 on a phone photo can exceed Firestore's 1MB doc limit)
-      const thumbPromise = isImage ? compressImage(dataUrl, 400, 0.5) : Promise.resolve(null);
-      const thumb = await thumbPromise;
-      const docEntry = { id: Date.now()+Math.random(), name: file.name, thumb, folder, uploadedAt: new Date().toISOString().slice(0,10), aiScanned: false, extractedAmount: null, extractedVendor: "", extractedDesc: "", extractedCategory: "Other" };
+        // Store a high-quality version for viewing (1600px wide, 0.85 quality — clear but reasonable size)
+        const viewImg = isImage ? await compressImage(dataUrl, 1600, 0.85) : dataUrl;
+        // Store a small thumbnail for the grid display only
+        const thumb = isImage ? await compressImage(dataUrl, 400, 0.5) : null;
+        const docEntry = { id: Date.now()+Math.random(), name: file.name, thumb, viewImg, folder, uploadedAt: new Date().toISOString().slice(0,10), aiScanned: false, extractedAmount: null, extractedVendor: "", extractedDesc: "", extractedCategory: "Other" };
 
         clearTimeout(timeoutId);
 
         if (folder === DOC_FOLDERS[0]) {
           // Expense Receipts → manual amount entry
-          setPendingUpload({ base64, mimeType, name: file.name, folder, preview, docEntry }); // preview is local-only, not in docEntry
+          setPendingUpload({ mimeType, name: file.name, folder, preview: viewImg, docEntry }); // viewImg is the high-quality version shown in modal
           setShowReceiptModal(folder);
           setUploadingDoc(false);
         } else {
@@ -1169,7 +1167,7 @@ items.forEach(function(item, idx){
                   {folderDocs.map(doc => (
                     <div key={doc.id} style={{ background:"#111520", border:"1px solid #2e3a58", borderRadius:8, overflow:"hidden", cursor:"pointer" }}>
                       <div style={{ position:"relative" }} onClick={()=>{
-                        const src = doc.thumb || doc.preview;
+                        const src = doc.viewImg || doc.thumb || doc.preview;
                         if (src) setShowDocViewer({src, name:doc.name});
                         else window.alert("This document cannot be previewed. It may have been uploaded before thumbnails were supported.");
                       }}>
