@@ -492,10 +492,11 @@ export default function App() {
       try {
         const dataUrl = ev.target.result;
         const isImage = mimeType.startsWith("image/");
-        // Store a high-quality version for viewing (1600px wide, 0.85 quality — clear but reasonable size)
-        const viewImg = isImage ? await compressImage(dataUrl, 1600, 0.85) : dataUrl;
-        // Store a small thumbnail for the grid display only
-        const thumb = isImage ? await compressImage(dataUrl, 400, 0.5) : null;
+        // Firestore has strict limits on nested array data — keep images small enough to fit
+        // 800px at 0.75 quality gives a clear, readable receipt without hitting Firestore limits
+        const viewImg = isImage ? await compressImage(dataUrl, 800, 0.75) : dataUrl;
+        // Tiny thumbnail for the grid display
+        const thumb = isImage ? await compressImage(dataUrl, 300, 0.5) : null;
         const docEntry = { id: Date.now()+Math.random(), name: file.name, thumb, viewImg, folder, uploadedAt: new Date().toISOString().slice(0,10), aiScanned: false, extractedAmount: null, extractedVendor: "", extractedDesc: "", extractedCategory: "Other" };
 
         clearTimeout(timeoutId);
