@@ -1,6 +1,6 @@
 import { useState, useMemo, useRef, useCallback, useEffect } from "react";
 import { initializeApp, getApps } from "firebase/app";
-import { getFirestore, collection, doc, onSnapshot, setDoc, deleteDoc, getDocs, runTransaction, arrayUnion, arrayRemove, updateDoc } from "firebase/firestore";
+import { getFirestore, collection, doc, onSnapshot, setDoc, deleteDoc, getDocs, runTransaction, arrayUnion, arrayRemove, updateDoc, getDoc } from "firebase/firestore";
 
 // ─── Firebase Init ─────────────────────────────────────────────────────────────
 const firebaseConfig = {
@@ -13,6 +13,8 @@ const firebaseConfig = {
 };
 const fbApp = getApps().length ? getApps()[0] : initializeApp(firebaseConfig);
 const db = getFirestore(fbApp);
+// Expose doc() as window._fsDoc to avoid naming conflicts with loop variables named "doc"
+window._fsDoc = doc;
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 const COST_CATEGORIES = ["Trucking", "Service & Repair", "Parts", "Cleaning", "Inspection", "Storage", "Other"];
@@ -492,12 +494,21 @@ export default function App() {
       try {
         const dataUrl = ev.target.result;
         const isImage = mimeType.startsWith("image/");
-        // Firestore has strict limits on nested array data — keep images small enough to fit
-        // 800px at 0.75 quality gives a clear, readable receipt without hitting Firestore limits
-        const viewImg = isImage ? await compressImage(dataUrl, 800, 0.75) : dataUrl;
-        // Tiny thumbnail for the grid display
-        const thumb = isImage ? await compressImage(dataUrl, 300, 0.5) : null;
-        const docEntry = { id: Date.now()+Math.random(), name: file.name, thumb, viewImg, folder, uploadedAt: new Date().toISOString().slice(0,10), aiScanned: false, extractedAmount: null, extractedVendor: "", extractedDesc: "", extractedCategory: "Other" };
+        // Compress for viewing — 900px, 0.72 quality
+        const viewImg = isImage ? await compressImage(dataUrl, 900, 0.72) : dataUrl;
+        // Tiny thumbnail for the grid display only
+        const thumb = isImage ? await compressImage(dataUrl, 250, 0.4) : null;
+        const docId = String(Date.now() + Math.random());
+        // Store image data in a SEPARATE Firestore "receipts" document so it never
+        // counts against the equipment document's 1MB limit
+        const receiptRef = String(selectedId) + "_" + docId;
+        setDoc(doc(db, "receipts", receiptRef), {
+          viewImg: viewImg || null,
+          thumb: thumb || null,
+          equipmentId: String(selectedId),
+        }).catch(console.error);
+        // Equipment document only stores lightweight metadata — no image data
+        const docEntry = { id: docId, name: file.name, receiptRef, thumb, folder, uploadedAt: new Date().toISOString().slice(0,10), aiScanned: false, extractedAmount: null, extractedVendor: "", extractedDesc: "", extractedCategory: "Other" };
 
         clearTimeout(timeoutId);
 
@@ -1167,10 +1178,17 @@ items.forEach(function(item, idx){
               : <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fill,minmax(150px,1fr))", gap:12 }}>
                   {folderDocs.map(doc => (
                     <div key={doc.id} style={{ background:"#111520", border:"1px solid #2e3a58", borderRadius:8, overflow:"hidden", cursor:"pointer" }}>
-                      <div style={{ position:"relative" }} onClick={()=>{
-                        const src = doc.viewImg || doc.thumb || doc.preview;
+                      <div style={{ position:"relative" }} onClick={async ()=>{
+                        let src = doc.viewImg || doc.thumb || doc.preview;
+                        if (!src && doc.receiptRef) {
+                          try {
+                            const rRef = window._fsDoc(db, "receipts", doc.receiptRef);
+                            const snap = await getDoc(rRef);
+                            if (snap.exists()) src = snap.data().viewImg || snap.data().thumb;
+                          } catch(e) { console.error("Could not load receipt:", e); }
+                        }
                         if (src) setShowDocViewer({src, name:doc.name});
-                        else window.alert("This document cannot be previewed. It may have been uploaded before thumbnails were supported.");
+                        else window.alert("This document cannot be previewed.");
                       }}>
                         {(doc.thumb || doc.preview)?.startsWith("data:image")
                           ? <img src={doc.thumb || doc.preview} alt={doc.name} style={{width:"100%",height:100,objectFit:"cover",display:"block"}} />
