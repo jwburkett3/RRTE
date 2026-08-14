@@ -903,16 +903,19 @@ items.forEach(function(item, idx){
           </div>
         ) : (
           <div style={S.card}>
-            <div style={S.secTitle}>{monthLabel} — Sold Units Detail</div>
+            <div style={{display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:12}}>
+              <div style={S.secTitle}>{monthLabel} — Sold Units Detail</div>
+              {adminUnlocked && <div style={{fontSize:11, color:"#c9a227"}}>⚙️ Admin — tap commission % to toggle</div>}
+              {!adminUnlocked && <div style={{fontSize:11, color:"#4a5a7a"}}>🔒 Commission editing requires Admin</div>}
+            </div>
             {/* Header row */}
-            <div style={{ display:"grid", gridTemplateColumns:"110px 1fr 100px 100px 100px 80px 100px", gap:8, padding:"6px 8px", color:"#4a5a7a", fontSize:11, textTransform:"uppercase", letterSpacing:"0.06em", borderBottom:"1px solid #2a3055", marginBottom:4 }}>
+            <div style={{ display:"grid", gridTemplateColumns:"100px 1fr 95px 95px 95px 70px 130px", gap:8, padding:"6px 8px", color:"#4a5a7a", fontSize:11, textTransform:"uppercase", letterSpacing:"0.06em", borderBottom:"1px solid #2a3055", marginBottom:4 }}>
               <span>PO #</span><span>Unit</span><span>Total In</span><span>Sale Price</span><span>Profit/Loss</span><span>Margin</span><span>Commission</span>
             </div>
             {rows.map(r => (
-              <div key={r.id} style={{ display:"grid", gridTemplateColumns:"110px 1fr 100px 100px 100px 80px 100px", gap:8, padding:"10px 8px", borderBottom:"1px solid #2a3055", cursor:"pointer", alignItems:"center" }}
-                onClick={()=>{ setSelectedId(r.id); setView("detail"); }}>
-                <span style={S.poTag}>{r.poNumber}</span>
-                <div>
+              <div key={r.id} style={{ display:"grid", gridTemplateColumns:"100px 1fr 95px 95px 95px 70px 130px", gap:8, padding:"10px 8px", borderBottom:"1px solid #2a3055", alignItems:"center" }}>
+                <span style={{...S.poTag, cursor:"pointer"}} onClick={()=>{ setSelectedId(r.id); setView("detail"); }}>{r.poNumber}</span>
+                <div style={{cursor:"pointer"}} onClick={()=>{ setSelectedId(r.id); setView("detail"); }}>
                   <div style={{ fontWeight:600, color:"#edf2fc" }}>{r.year} {r.make} {r.model}</div>
                   <div style={{ fontSize:11, color:"#4a5a7a" }}>Sold {r.saleDate}{r.soldTo?` · ${r.soldTo}`:""}</div>
                 </div>
@@ -920,11 +923,55 @@ items.forEach(function(item, idx){
                 <span style={{ color:"#4ade80" }}>{fmt(r.salePrice)}</span>
                 <span style={{ color:r.margin>=0?"#4ade80":"#f87171", fontWeight:700 }}>{fmt(r.margin)}</span>
                 <span style={{ color:r.marginPct>=0?"#4ade80":"#f87171", fontSize:13 }}>{r.marginPct!=null?r.marginPct.toFixed(1)+"%":"—"}</span>
-                <span style={{ color:"#c9a227", fontWeight:600 }}>{r.commissionAmt>0?fmt(r.commissionAmt):r.commissionPct>0?"—":"0%"}</span>
+                {/* Commission toggle — admin only */}
+                <div style={{display:"flex", gap:4, flexWrap:"wrap"}}>
+                  {[0, 5, 10].map(pct => {
+                    const isSelected = (r.commissionPct || 0) === pct;
+                    return (
+                      <button
+                        key={pct}
+                        disabled={!adminUnlocked}
+                        onClick={async (e) => {
+                          e.stopPropagation();
+                          if (!adminUnlocked) return;
+                          // Recalculate commission based on current margin
+                          const newCommAmt = pct > 0 && r.margin > 0
+                            ? parseFloat(((r.margin * pct) / 100).toFixed(2))
+                            : 0;
+                          // Remove any old commission cost entry and add new one
+                          const eq = equipment.find(eq => eq.id === r.id);
+                          if (!eq) return;
+                          const costsWithoutComm = (eq.costs||[]).filter(c => !c.isCommission);
+                          const newCosts = pct > 0 && newCommAmt > 0
+                            ? [...costsWithoutComm, { id: Date.now(), category:"Other", description:`Salesman Commission (${pct}%)`, amount:newCommAmt, date:eq.saleDate||new Date().toISOString().slice(0,10), isCommission:true }]
+                            : costsWithoutComm;
+                          updEq(r.id, e => ({ ...e, commissionPct:pct, commissionAmt:newCommAmt, costs:newCosts }));
+                        }}
+                        style={{
+                          background: isSelected ? "#c9a227" : "transparent",
+                          border: `1px solid ${isSelected ? "#c9a227" : "#2a3055"}`,
+                          borderRadius: 5,
+                          color: isSelected ? "#111" : adminUnlocked ? "#8a9aba" : "#3a4a6a",
+                          fontSize: 11,
+                          fontWeight: isSelected ? 700 : 400,
+                          padding: "2px 7px",
+                          cursor: adminUnlocked ? "pointer" : "default",
+                          touchAction: "manipulation",
+                        }}>
+                        {pct === 0 ? "0%" : `${pct}%`}
+                      </button>
+                    );
+                  })}
+                  {(r.commissionAmt||0) > 0 && (
+                    <span style={{fontSize:11, color:"#c9a227", fontWeight:700, alignSelf:"center", marginLeft:2}}>
+                      {fmt(r.commissionAmt)}
+                    </span>
+                  )}
+                </div>
               </div>
             ))}
             {/* Grand total row */}
-            <div style={{ display:"grid", gridTemplateColumns:"110px 1fr 100px 100px 100px 80px 100px", gap:8, padding:"12px 8px", borderTop:"2px solid #b45309", marginTop:8, background:"#111520", borderRadius:6 }}>
+            <div style={{ display:"grid", gridTemplateColumns:"100px 1fr 95px 95px 95px 70px 130px", gap:8, padding:"12px 8px", borderTop:"2px solid #b45309", marginTop:8, background:"#111520", borderRadius:6 }}>
               <span />
               <span style={{ fontWeight:800, color:"#edf2fc", fontSize:14 }}>GRAND TOTAL</span>
               <span style={{ color:"#d4a817", fontWeight:700 }}>{fmt(totalCostIn)}</span>
