@@ -1649,6 +1649,7 @@ items.forEach(function(item, idx){
             <div style={{fontSize:13}}>Choose a PO above to generate an invoice.</div>
           </div>
         ) : (
+          <>
           <div id="rrte-invoice" style={{background:"#ffffff", borderRadius:14, overflow:"hidden", maxWidth:720, margin:"0 auto",
             color:"#1a1a2e", fontFamily:"'Inter',system-ui,sans-serif", boxShadow:"0 4px 32px #0004"}}>
 
@@ -1811,6 +1812,7 @@ items.forEach(function(item, idx){
               🖨️ Print Invoice
             </button>
           </div>
+          </>
         )}
       </div>
     );
