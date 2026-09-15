@@ -1471,7 +1471,18 @@ items.forEach(function(item, idx){
                 {/* Info grid */}
                 <div style={{display:"grid", gridTemplateColumns:"1fr 1fr", gap:8, marginBottom:14, fontSize:13}}>
                   <div><span style={{color:"#4a5a7a", fontSize:11}}>DEALER</span><div style={{color:"#dde4f0", marginTop:2}}>{item.dealerName || "—"}</div></div>
-                  <div><span style={{color:"#4a5a7a", fontSize:11}}>PRICE</span><div style={{color:"#d4a817", fontWeight:800, fontSize:16, marginTop:2}}>{fmt(item.price)}</div></div>
+                  <div>
+                    <span style={{color:"#4a5a7a", fontSize:11}}>PURCHASE PRICE</span>
+                    <div style={{color:"#d4a817", fontWeight:800, fontSize:16, marginTop:2}}>{fmt(item.price||0)}</div>
+                    {(item.costs||[]).length > 0 && (
+                      <>
+                        <span style={{color:"#4a5a7a", fontSize:11}}>ADDITIONAL COSTS</span>
+                        <div style={{color:"#c9a227", fontWeight:700, fontSize:13, marginTop:1}}>{fmt((item.costs||[]).reduce((s,c)=>s+c.amount,0))}</div>
+                        <span style={{color:"#4a5a7a", fontSize:11}}>TOTAL IN UNIT</span>
+                        <div style={{color:"#4ade80", fontWeight:800, fontSize:15, marginTop:1}}>{fmt((item.price||0)+(item.costs||[]).reduce((s,c)=>s+c.amount,0))}</div>
+                      </>
+                    )}
+                  </div>
                   <div><span style={{color:"#4a5a7a", fontSize:11}}>LOCATION</span>
                     <div style={{marginTop:2}}>
                       {item.location
