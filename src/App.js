@@ -165,6 +165,8 @@ export default function App() {
   const [newLogItem, setNLI] = useState({ make:"", model:"", year:"", serialNumber:"", hours:"", price:"", dealerName:"", location:"", equipType:"Farm", notes:"" });
   const [editLogId, setEditLogId] = useState(null);
   const [logActiveFolder, setLogActiveFolder] = useState(null);
+  const [logPendingUpload, setLogPendingUpload] = useState(null);
+  const [logManualAmount, setLogManualAmount] = useState("");
   const [editLogData, setEditLogData] = useState({});
   const [localPrices, setLP] = useState({});
   const [invoiceSelectedId, setInvoiceSelectedId] = useState("");
@@ -918,14 +920,17 @@ items.forEach(function(item, idx){
               k===""?<div key={i}/>:
               <button key={i}
                 onClick={()=>{
-                  if(k==="⌫"){setReportPinInput(p=>p.slice(0,-1));setReportPinError(false);return;}
-                  if(reportPinError){setReportPinInput("");setReportPinError(false);}
-                  const next=reportPinInput+String(k);
-                  setReportPinInput(next);
-                  if(next.length===4){
-                    if(next===reportPin){setReportPinUnlocked(true);setReportPinInput("");setReportPinError(false);}
-                    else{setReportPinError(true);setTimeout(()=>{setReportPinInput("");setReportPinError(false);},900);}
-                  }
+                  if(k==="⌫"){setReportPinInput(p=>{setReportPinError(false);return p.slice(0,-1);});return;}
+                  setReportPinInput(prev=>{
+                    if(reportPinError){setReportPinError(false);return "";}
+                    const next=prev+String(k);
+                    if(next.length===4){
+                      if(next===reportPin){setTimeout(()=>{setReportPinUnlocked(true);setReportPinInput("");setReportPinError(false);},50);}
+                      else{setReportPinError(true);setTimeout(()=>{setReportPinInput("");setReportPinError(false);},900);}
+                      return next;
+                    }
+                    return next;
+                  });
                 }}
                 style={{height:64,borderRadius:12,background:k==="⌫"?"transparent":"#1e2235",
                   border:k==="⌫"?"none":"1px solid #2a3055",
@@ -1577,7 +1582,14 @@ items.forEach(function(item, idx){
                             const receiptRef = String(item.id)+"_"+docId;
                             setDoc(doc(db,"receipts",receiptRef),{viewImg,thumb,logisticsId:String(item.id)}).catch(console.error);
                             const docEntry = {id:docId,name:file.name,thumb,receiptRef,folder:logActiveFolder.folder,uploadedAt:new Date().toISOString().slice(0,10)};
-                            updateDoc(doc(db,"logistics",String(item.id)),{[`docs.${logActiveFolder.folder}`]:arrayUnion(docEntry)}).catch(console.error);
+                            if (logActiveFolder.folder === DOC_FOLDERS[0]) {
+                              // Expense Receipts — show amount entry modal
+                              setLogPendingUpload({ docEntry, itemId: item.id, folder: logActiveFolder.folder, preview: thumb || viewImg });
+                              setLogManualAmount("");
+                            } else {
+                              // Other folders — save directly, no amount needed
+                              updateDoc(doc(db,"logistics",String(item.id)),{[`docs.${logActiveFolder.folder}`]:arrayUnion(docEntry)}).catch(console.error);
+                            }
                           };
                           reader.readAsDataURL(file);
                         }} />
@@ -1824,19 +1836,20 @@ items.forEach(function(item, idx){
     const ADMIN_PIN = "1234"; // Change this PIN as needed
 
     const handlePinKey = (digit) => {
-      if (adminPinError) { setAdminPinInput(""); setAdminPinError(false); }
-      const next = adminPinInput + digit;
-      setAdminPinInput(next);
-      if (next.length === 4) {
-        if (next === ADMIN_PIN) {
-          setAdminUnlocked(true);
-          setAdminPinInput("");
-          setAdminPinError(false);
-        } else {
-          setAdminPinError(true);
-          setTimeout(() => { setAdminPinInput(""); setAdminPinError(false); }, 900);
+      setAdminPinInput(prev => {
+        if (adminPinError) { setAdminPinError(false); return ""; }
+        const next = prev + digit;
+        if (next.length === 4) {
+          if (next === ADMIN_PIN) {
+            setTimeout(() => { setAdminUnlocked(true); setAdminPinInput(""); setAdminPinError(false); }, 50);
+          } else {
+            setAdminPinError(true);
+            setTimeout(() => { setAdminPinInput(""); setAdminPinError(false); }, 900);
+          }
+          return next;
         }
-      }
+        return next;
+      });
     };
 
     const handlePinBackspace = () => {
@@ -2146,20 +2159,20 @@ items.forEach(function(item, idx){
                     setAppPinError(false);
                     return;
                   }
-                  if(appPinError){ setAppPinInput(""); setAppPinError(false); }
-                  const next = appPinInput + String(k);
-                  setAppPinInput(next);
-                  if(next.length===4){
-                    if(next==="1234"){
-                      setAppUnlocked(true);
-                      setAppPinInput("");
-                      setAppPinError(false);
-                    } else {
-                      setAppPinError(true);
-                      setAppPinShake(true);
-                      setTimeout(()=>{ setAppPinInput(""); setAppPinError(false); setAppPinShake(false); },900);
+                  setAppPinInput(prev=>{
+                    if(appPinError){setAppPinError(false);return "";}
+                    const next = prev + String(k);
+                    if(next.length===4){
+                      if(next==="1234"){
+                        setTimeout(()=>{setAppUnlocked(true);setAppPinInput("");setAppPinError(false);},50);
+                      } else {
+                        setAppPinError(true);setAppPinShake(true);
+                        setTimeout(()=>{setAppPinInput("");setAppPinError(false);setAppPinShake(false);},900);
+                      }
+                      return next;
                     }
-                  }
+                    return next;
+                  });
                 }}
                 style={{
                   height:72,borderRadius:14,
@@ -2507,6 +2520,55 @@ items.forEach(function(item, idx){
               <button style={S.btn("ghost")} onClick={()=>setShowDocViewer(null)}>✕ Close</button>
             </div>
             <img src={showDocViewer.src} alt={showDocViewer.name} style={{width:"100%",borderRadius:8,display:"block"}} />
+          </div>
+        </div>
+      )}
+
+      {/* ── Logistics Receipt Amount Modal ── */}
+      {logPendingUpload && (
+        <div style={S.modal} onClick={()=>{setLogPendingUpload(null);setLogManualAmount("");}}>
+          <div style={S.modalCard} onClick={e=>e.stopPropagation()}>
+            <h3 style={{margin:"0 0 6px",color:"#edf2fc"}}>📷 Add Expense Receipt</h3>
+            <p style={{color:"#7a8aaa",fontSize:13,margin:"0 0 16px"}}>Enter the amount to add it to this unit's cost total.</p>
+            {logPendingUpload.preview && (
+              <img src={logPendingUpload.preview} alt="Receipt" style={{width:"100%",maxHeight:180,objectFit:"contain",borderRadius:8,background:"#111520",marginBottom:14,border:"1px solid #2e3a58"}} />
+            )}
+            <div style={{background:"#111828",border:"2px solid #c9a227",borderRadius:10,padding:"14px 16px",marginBottom:16}}>
+              <label style={{...S.label,marginBottom:6}}>Receipt Amount ($)</label>
+              <input
+                style={{...S.input, fontSize:18, fontWeight:700, color:"#c9a227"}}
+                type="number" inputMode="decimal" placeholder="0.00"
+                value={logManualAmount}
+                onChange={e=>setLogManualAmount(e.target.value)}
+                autoFocus
+              />
+              {logManualAmount!=="" && (
+                <div style={{fontSize:12,color:"#c9a227",marginTop:6}}>
+                  {fmt(parseFloat(logManualAmount)||0)} will be added to this unit's cost total
+                </div>
+              )}
+            </div>
+            <div style={{display:"flex",gap:8}}>
+              <button style={{...S.btn("ghost"),flex:1}} onClick={()=>{setLogPendingUpload(null);setLogManualAmount("");}}>Cancel</button>
+              <button style={{...S.btn("success"),flex:2}} onClick={()=>{
+                const { docEntry, itemId, folder } = logPendingUpload;
+                const amount = parseFloat(logManualAmount) || 0;
+                const updatedEntry = { ...docEntry, extractedAmount: amount };
+                updateDoc(doc(db,"logistics",String(itemId)),{
+                  [`docs.${folder}`]: arrayUnion(updatedEntry),
+                }).catch(console.error);
+                if (amount > 0) {
+                  const costEntry = { id: Date.now(), category:"Other", description:"Receipt", amount, date:new Date().toISOString().slice(0,10), fromReceipt:true };
+                  updateDoc(doc(db,"logistics",String(itemId)),{
+                    costs: arrayUnion(costEntry),
+                  }).catch(console.error);
+                }
+                setLogPendingUpload(null);
+                setLogManualAmount("");
+              }}>
+                ✓ Save Receipt &amp; Add {fmt(parseFloat(logManualAmount)||0)}
+              </button>
+            </div>
           </div>
         </div>
       )}
