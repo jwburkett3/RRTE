@@ -518,10 +518,10 @@ export default function App() {
       try {
         const dataUrl = ev.target.result;
         const isImage = mimeType.startsWith("image/");
-        // Compress for viewing — 900px, 0.72 quality
-        const viewImg = isImage ? await compressImage(dataUrl, 900, 0.72) : dataUrl;
-        // Tiny thumbnail for the grid display only
-        const thumb = isImage ? await compressImage(dataUrl, 250, 0.4) : null;
+        // Compress for viewing — 1400px, 0.88 quality for clear readable receipts
+        const viewImg = isImage ? await compressImage(dataUrl, 1400, 0.88) : dataUrl;
+        // Small thumbnail for grid display only
+        const thumb = isImage ? await compressImage(dataUrl, 300, 0.5) : null;
         const docId = String(Date.now() + Math.random());
         // Store image data in a SEPARATE Firestore "receipts" document so it never
         // counts against the equipment document's 1MB limit
@@ -1558,7 +1558,7 @@ items.forEach(function(item, idx){
                       );
                     })}
                   </div>
-                  {logActiveFolder?.id === item.id && (
+                  {logActiveFolder !== null && logActiveFolder?.id === item.id && logActiveFolder?.folder && (
                     <div>
                       <div style={{display:"grid", gridTemplateColumns:"repeat(auto-fill,minmax(120px,1fr))", gap:8, marginBottom:8}}>
                         {((item.docs||{})[logActiveFolder.folder]||[]).map(d => (
@@ -1573,7 +1573,7 @@ items.forEach(function(item, idx){
                               <button onClick={()=>{
                                 const updated = {...(item.docs||{})};
                                 updated[logActiveFolder.folder] = (updated[logActiveFolder.folder]||[]).filter(x=>x.id!==d.id);
-                                updateDoc(doc(db,"logistics",String(item.id)),{[`docs.${logActiveFolder.folder}`]:arrayRemove(d)}).catch(console.error);
+                                if(logActiveFolder?.folder) updateDoc(doc(db,"logistics",String(item.id)),{[`docs.${logActiveFolder.folder}`]:arrayRemove(d)}).catch(console.error);
                               }} style={{background:"none",border:"none",color:"#4a5a7a",cursor:"pointer",fontSize:10,padding:2}}>✕</button>
                             </div>
                           </div>
@@ -1587,19 +1587,21 @@ items.forEach(function(item, idx){
                           reader.onload = async (e) => {
                             const dataUrl = e.target.result;
                             const isImg = file.type.startsWith("image/");
-                            const viewImg = isImg ? await compressImage(dataUrl, 900, 0.72) : dataUrl;
-                            const thumb = isImg ? await compressImage(dataUrl, 250, 0.4) : null;
+                            const viewImg = isImg ? await compressImage(dataUrl, 1400, 0.88) : dataUrl;
+                            const thumb = isImg ? await compressImage(dataUrl, 300, 0.5) : null;
                             const docId = String(Date.now()+Math.random());
                             const receiptRef = String(item.id)+"_"+docId;
                             setDoc(doc(db,"receipts",receiptRef),{viewImg,thumb,logisticsId:String(item.id)}).catch(console.error);
-                            const docEntry = {id:docId,name:file.name,thumb,receiptRef,folder:logActiveFolder.folder,uploadedAt:new Date().toISOString().slice(0,10)};
-                            if (logActiveFolder.folder === DOC_FOLDERS[0]) {
+                            // Capture folder synchronously before async operations
+                            const capturedFolder = logActiveFolder?.folder || DOC_FOLDERS[0];
+                            const docEntry = {id:docId,name:file.name,thumb,receiptRef,folder:capturedFolder,uploadedAt:new Date().toISOString().slice(0,10)};
+                            if (capturedFolder === DOC_FOLDERS[0]) {
                               // Expense Receipts — show amount entry modal
-                              setLogPendingUpload({ docEntry, itemId: item.id, folder: logActiveFolder.folder, preview: thumb || viewImg });
+                              setLogPendingUpload({ docEntry, itemId: item.id, folder: capturedFolder, preview: thumb || viewImg });
                               setLogManualAmount("");
                             } else {
                               // Other folders — save directly, no amount needed
-                              updateDoc(doc(db,"logistics",String(item.id)),{[`docs.${logActiveFolder.folder}`]:arrayUnion(docEntry)}).catch(console.error);
+                              updateDoc(doc(db,"logistics",String(item.id)),{[`docs.${capturedFolder}`]:arrayUnion(docEntry)}).catch(console.error);
                             }
                           };
                           reader.readAsDataURL(file);
