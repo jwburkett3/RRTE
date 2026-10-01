@@ -177,7 +177,7 @@ export default function App() {
   const [adminUnlocked, setAdminUnlocked] = useState(false);
   const [adminPinInput, setAdminPinInput] = useState("");
   const [reportPinUnlocked, setReportPinUnlocked] = useState(false);
-  const [reportPin, setReportPin] = useState("1234"); // changeable by admin
+  const [reportPin, setReportPin] = useState("5105"); // changeable by admin
   const [reportPinInput, setReportPinInput] = useState("");
   const [reportPinError, setReportPinError] = useState(false);
   const [viewHistory, setViewHistory] = useState([]); // for back button
@@ -1846,7 +1846,7 @@ items.forEach(function(item, idx){
 
   // ── Admin View ──
   const renderAdmin = () => {
-    const ADMIN_PIN = "1234"; // Change this PIN as needed
+    const ADMIN_PIN = "5105"; // Change this PIN as needed
 
     const handlePinKey = (digit) => {
       setAdminPinInput(prev => {
