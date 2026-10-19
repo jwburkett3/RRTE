@@ -1314,32 +1314,31 @@ items.forEach(function(item, idx){
             {folderDocs.length === 0
               ? <div style={{ color:"#2a3a5a", textAlign:"center", padding:"30px 0", fontSize:13 }}>No documents in this folder yet.</div>
               : <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fill,minmax(150px,1fr))", gap:12 }}>
-                  {folderDocs.map(doc => (
-                    <div key={doc.id} style={{ background:"#111520", border:"1px solid #2e3a58", borderRadius:8, overflow:"hidden", cursor:"pointer" }}>
+                  {folderDocs.map(receipt => (
+                    <div key={receipt.id} style={{ background:"#111520", border:"1px solid #2e3a58", borderRadius:8, overflow:"hidden", cursor:"pointer" }}>
                       <div style={{ position:"relative" }} onClick={async ()=>{
-                        let src = doc.viewImg || doc.thumb || doc.preview;
-                        if (!src && doc.receiptRef) {
+                        let src = receipt.viewImg || receipt.thumb || receipt.preview;
+                        if (!src && receipt.receiptRef) {
                           try {
-                            const rRef = window._fsDoc(db, "receipts", doc.receiptRef);
-                            const snap = await getDoc(rRef);
+                            const snap = await getDoc(doc(db, "receipts", receipt.receiptRef));
                             if (snap.exists()) src = snap.data().viewImg || snap.data().thumb;
                           } catch(e) { console.error("Could not load receipt:", e); }
                         }
-                        if (src) setShowDocViewer({src, name:doc.name});
+                        if (src) setShowDocViewer({src, name:receipt.name});
                         else window.alert("This document cannot be previewed.");
                       }}>
-                        <ReceiptThumb docEntry={doc} db={db} height={100} />
-                        {doc.extractedAmount > 0 && <div style={{ position:"absolute",top:4,right:4,background:"#166534",color:"#4ade80",fontSize:9,padding:"2px 5px",borderRadius:3,fontWeight:700 }}>$ ✓</div>}
+                        <ReceiptThumb docEntry={receipt} db={db} height={100} />
+                        {receipt.extractedAmount > 0 && <div style={{ position:"absolute",top:4,right:4,background:"#166534",color:"#4ade80",fontSize:9,padding:"2px 5px",borderRadius:3,fontWeight:700 }}>$ ✓</div>}
                       </div>
                       <div style={{ padding:"8px 8px 6px" }}>
-                        <div style={{ fontSize:11, color:"#8a9aba", whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis" }}>{doc.name}</div>
-                        <div style={{ fontSize:10, color:"#4a5a7a" }}>{doc.uploadedAt}</div>
-                        {doc.extractedAmount > 0 && (
-                          <div style={{ fontSize:12, color:"#4ade80", fontWeight:700, marginTop:2 }}>{fmt(doc.extractedAmount)}</div>
+                        <div style={{ fontSize:11, color:"#8a9aba", whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis" }}>{receipt.name}</div>
+                        <div style={{ fontSize:10, color:"#4a5a7a" }}>{receipt.uploadedAt}</div>
+                        {receipt.extractedAmount > 0 && (
+                          <div style={{ fontSize:12, color:"#4ade80", fontWeight:700, marginTop:2 }}>{fmt(receipt.extractedAmount)}</div>
                         )}
                       </div>
                       <div style={{ borderTop:"1px solid #2a3055", padding:"4px 8px", display:"flex", justifyContent:"flex-end" }}>
-                        <button onClick={()=>deleteDocFromFolder(activeFolder, doc.id)} style={{background:"none",border:"none",color:"#4a5a7a",cursor:"pointer",fontSize:11,padding:2}}>Delete</button>
+                        <button onClick={()=>deleteDocFromFolder(activeFolder, receipt.id)} style={{background:"none",border:"none",color:"#4a5a7a",cursor:"pointer",fontSize:11,padding:2}}>Delete</button>
                       </div>
                     </div>
                   ))}
