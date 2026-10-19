@@ -63,6 +63,24 @@ function getTotals(e) {
   return { totalCosts, totalIn, margin, marginPct, tradeAllowance, cashDue };
 }
 
+// ─── ReceiptThumb ─────────────────────────────────────────────────────────────
+// Lazy-loads thumbnail from the "receipts" Firestore collection so the equipment
+// document never stores base64 image data (avoids 1MB Firestore doc limit).
+function ReceiptThumb({ docEntry, db, height = 100 }) {
+  const [src, setSrc] = React.useState(docEntry.thumb || docEntry.preview || null);
+  React.useEffect(() => {
+    if (src) return; // already have it (legacy entry with thumb embedded)
+    if (!docEntry.receiptRef) return;
+    getDoc(doc(db, "receipts", docEntry.receiptRef))
+      .then(snap => { if (snap.exists()) setSrc(snap.data().thumb || snap.data().viewImg || null); })
+      .catch(() => {});
+  }, [docEntry.receiptRef]);
+  if (src?.startsWith("data:image")) {
+    return <img src={src} alt={docEntry.name} style={{width:"100%",height,objectFit:"cover",display:"block"}} />;
+  }
+  return <div style={{width:"100%",height,background:"#1e2436",display:"flex",alignItems:"center",justifyContent:"center",fontSize:32}}>📄</div>;
+}
+
 // ─── AI Receipt Scanner ───────────────────────────────────────────────────────
 // AI receipt scanning is not available on the deployed app (no backend API key).
 // Receipts are uploaded with manual amount entry instead — fast and always reliable.
@@ -531,8 +549,8 @@ export default function App() {
           thumb: thumb || null,
           equipmentId: String(selectedId),
         }).catch(console.error);
-        // Equipment document only stores lightweight metadata — no image data
-        const docEntry = { id: docId, name: file.name, receiptRef, thumb, folder, uploadedAt: new Date().toISOString().slice(0,10), aiScanned: false, extractedAmount: null, extractedVendor: "", extractedDesc: "", extractedCategory: "Other" };
+        // Equipment document only stores lightweight metadata — NO image data (thumb/viewImg live in "receipts" collection)
+        const docEntry = { id: docId, name: file.name, receiptRef, folder, uploadedAt: new Date().toISOString().slice(0,10), aiScanned: false, extractedAmount: null, extractedVendor: "", extractedDesc: "", extractedCategory: "Other" };
 
         clearTimeout(timeoutId);
 
@@ -1310,10 +1328,7 @@ items.forEach(function(item, idx){
                         if (src) setShowDocViewer({src, name:doc.name});
                         else window.alert("This document cannot be previewed.");
                       }}>
-                        {(doc.thumb || doc.preview)?.startsWith("data:image")
-                          ? <img src={doc.thumb || doc.preview} alt={doc.name} style={{width:"100%",height:100,objectFit:"cover",display:"block"}} />
-                          : <div style={{width:"100%",height:100,background:"#1e2436",display:"flex",alignItems:"center",justifyContent:"center",fontSize:32}}>📄</div>
-                        }
+                        <ReceiptThumb docEntry={doc} db={db} height={100} />
                         {doc.extractedAmount > 0 && <div style={{ position:"absolute",top:4,right:4,background:"#166534",color:"#4ade80",fontSize:9,padding:"2px 5px",borderRadius:3,fontWeight:700 }}>$ ✓</div>}
                       </div>
                       <div style={{ padding:"8px 8px 6px" }}>
