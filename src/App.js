@@ -67,8 +67,8 @@ function getTotals(e) {
 // Lazy-loads thumbnail from the "receipts" Firestore collection so the equipment
 // document never stores base64 image data (avoids 1MB Firestore doc limit).
 function ReceiptThumb({ docEntry, db, height = 100 }) {
-  const [src, setSrc] = React.useState(docEntry.thumb || docEntry.preview || null);
-  React.useEffect(() => {
+  const [src, setSrc] = useState(docEntry.thumb || docEntry.preview || null);
+  useEffect(() => {
     if (src) return; // already have it (legacy entry with thumb embedded)
     if (!docEntry.receiptRef) return;
     getDoc(doc(db, "receipts", docEntry.receiptRef))
