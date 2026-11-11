@@ -497,8 +497,9 @@ export default function App() {
   }
 
   // ── Receipt / Document upload ──
-  // Compress an image data URL down to a safe size for Firestore (max ~700KB doc limit safety margin)
-  const compressImage = (dataUrl, maxWidth = 1200, quality = 0.7) => {
+  // Compress an image and guarantee the result fits under maxBytes (Firestore 1MB doc limit).
+  // Tries progressively lower quality until it fits.
+  const compressImage = (dataUrl, maxWidth = 1200, quality = 0.82, maxBytes = 700000) => {
     return new Promise((resolve) => {
       const img = new Image();
       img.onload = () => {
@@ -512,9 +513,16 @@ export default function App() {
         canvas.height = height;
         const ctx = canvas.getContext("2d");
         ctx.drawImage(img, 0, 0, width, height);
-        resolve(canvas.toDataURL("image/jpeg", quality));
+        // Try progressively lower quality until it fits under maxBytes
+        let q = quality;
+        let result;
+        do {
+          result = canvas.toDataURL("image/jpeg", q);
+          q = Math.round((q - 0.08) * 100) / 100;
+        } while (result.length > maxBytes && q > 0.15);
+        resolve(result);
       };
-      img.onerror = () => resolve(dataUrl); // fallback to original if compression fails
+      img.onerror = () => resolve(dataUrl);
       img.src = dataUrl;
     });
   };
@@ -536,10 +544,10 @@ export default function App() {
       try {
         const dataUrl = ev.target.result;
         const isImage = mimeType.startsWith("image/");
-        // Compress for viewing — clear and readable but small enough for Firestore's 1MB doc limit
-        const viewImg = isImage ? await compressImage(dataUrl, 1600, 0.92) : dataUrl;
-        // Small thumbnail for grid display only
-        const thumb = isImage ? await compressImage(dataUrl, 400, 0.80) : null;
+        // viewImg: max 1400px, guaranteed under 600KB so combined doc stays under 1MB
+        const viewImg = isImage ? await compressImage(dataUrl, 1400, 0.88, 600000) : dataUrl;
+        // thumb: small grid preview, max 150KB
+        const thumb = isImage ? await compressImage(dataUrl, 400, 0.78, 150000) : null;
         const docId = String(Date.now() + Math.random());
         // Store image data in a SEPARATE Firestore "receipts" document so it never
         // counts against the equipment document's 1MB limit
@@ -1609,8 +1617,8 @@ items.forEach(function(item, idx){
                           reader.onload = async (e) => {
                             const dataUrl = e.target.result;
                             const isImg = file.type.startsWith("image/");
-                            const viewImg = isImg ? await compressImage(dataUrl, 1600, 0.92) : dataUrl;
-                            const thumb = isImg ? await compressImage(dataUrl, 400, 0.80) : null;
+                            const viewImg = isImg ? await compressImage(dataUrl, 1400, 0.88, 600000) : dataUrl;
+                            const thumb = isImg ? await compressImage(dataUrl, 400, 0.78, 150000) : null;
                             const docId = String(Date.now()+Math.random());
                             const receiptRef = String(item.id)+"_"+docId;
                             setDoc(doc(db,"receipts",receiptRef),{viewImg,thumb,logisticsId:String(item.id)}).catch(console.error);
