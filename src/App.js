@@ -544,13 +544,21 @@ export default function App() {
         // Store image data in a SEPARATE Firestore "receipts" document so it never
         // counts against the equipment document's 1MB limit
         const receiptRef = String(selectedId) + "_" + docId;
-        setDoc(doc(db, "receipts", receiptRef), {
-          viewImg: viewImg || null,
-          thumb: thumb || null,
-          equipmentId: String(selectedId),
-        }).catch(console.error);
-        // Equipment document only stores lightweight metadata — NO image data (thumb/viewImg live in "receipts" collection)
-        const docEntry = { id: docId, name: file.name, receiptRef, folder, uploadedAt: new Date().toISOString().slice(0,10), aiScanned: false, extractedAmount: null, extractedVendor: "", extractedDesc: "", extractedCategory: "Other" };
+        // AWAIT the image write so we know it succeeded before saving metadata
+        try {
+          await setDoc(doc(db, "receipts", receiptRef), {
+            viewImg: viewImg || null,
+            thumb: thumb || null,
+            equipmentId: String(selectedId),
+          });
+        } catch(uploadErr) {
+          clearTimeout(timeoutId);
+          setUploadingDoc(false);
+          window.alert("Could not save receipt image. Error: " + uploadErr.message);
+          return;
+        }
+        // Equipment document stores lightweight metadata + thumb for display (thumb also in receipts collection as backup)
+        const docEntry = { id: docId, name: file.name, receiptRef, thumb, folder, uploadedAt: new Date().toISOString().slice(0,10), aiScanned: false, extractedAmount: null, extractedVendor: "", extractedDesc: "", extractedCategory: "Other" };
 
         clearTimeout(timeoutId);
 
