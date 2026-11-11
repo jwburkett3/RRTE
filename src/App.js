@@ -536,10 +536,10 @@ export default function App() {
       try {
         const dataUrl = ev.target.result;
         const isImage = mimeType.startsWith("image/");
-        // Compress for viewing — high quality for clear readable receipts
-        const viewImg = isImage ? await compressImage(dataUrl, 2400, 0.97) : dataUrl;
+        // Compress for viewing — clear and readable but small enough for Firestore's 1MB doc limit
+        const viewImg = isImage ? await compressImage(dataUrl, 1600, 0.92) : dataUrl;
         // Small thumbnail for grid display only
-        const thumb = isImage ? await compressImage(dataUrl, 600, 0.85) : null;
+        const thumb = isImage ? await compressImage(dataUrl, 400, 0.80) : null;
         const docId = String(Date.now() + Math.random());
         // Store image data in a SEPARATE Firestore "receipts" document so it never
         // counts against the equipment document's 1MB limit
@@ -1609,8 +1609,8 @@ items.forEach(function(item, idx){
                           reader.onload = async (e) => {
                             const dataUrl = e.target.result;
                             const isImg = file.type.startsWith("image/");
-                            const viewImg = isImg ? await compressImage(dataUrl, 2400, 0.97) : dataUrl;
-                            const thumb = isImg ? await compressImage(dataUrl, 600, 0.85) : null;
+                            const viewImg = isImg ? await compressImage(dataUrl, 1600, 0.92) : dataUrl;
+                            const thumb = isImg ? await compressImage(dataUrl, 400, 0.80) : null;
                             const docId = String(Date.now()+Math.random());
                             const receiptRef = String(item.id)+"_"+docId;
                             setDoc(doc(db,"receipts",receiptRef),{viewImg,thumb,logisticsId:String(item.id)}).catch(console.error);
